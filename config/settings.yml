@@ -1,4 +1,9 @@
-TODO_plugin_name:
-  plugin_name_enabled:
-    default: false
+plugins:
+  aliexpress_image_enabled:
+    default: true
     client: true
+  aliexpress_app_key:
+    default: ""
+  aliexpress_app_secret:
+    default: ""
+    secret: true
