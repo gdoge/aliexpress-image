@@ -1,45 +1,46 @@
-/* Discourse automatically prefixes [wrap=name] with .d-wrap- */
 .d-wrap-aliexpress-card {
   display: flex;
-  align-items: flex-start;
-  gap: 15px;
+  flex-direction: column; /* Stacked vertically for the large image */
   border: 1px solid var(--primary-low);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 0; /* Remove padding to let image flush to top if desired */
   background-color: var(--secondary);
   margin: 15px 0;
-  max-width: 600px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  max-width: 350px; /* Constraints the card width */
+  overflow: hidden;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 
-  /* Target the Markdown image link */
+  /* The 300px Image */
   a.lightbox, a:not(.lightbox) > img {
-    border-radius: 6px;
-    max-width: 120px;
-    height: auto;
+    width: 300px;
+    height: 300px;
     object-fit: cover;
+    display: block;
+    margin: 15px auto; /* Centers the 300px image */
+    border-radius: 8px;
   }
 
-  /* Target the text wrapper */
   .aliexpress-info {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    padding: 0 15px 15px 15px;
+    text-align: center;
 
     strong {
+      display: block;
       font-size: 1.1em;
-      line-height: 1.3;
-      margin-bottom: 8px;
+      line-height: 1.4;
+      margin-bottom: 10px;
       
       a {
-        color: var(--tertiary);
+        color: var(--primary);
         text-decoration: none;
+        &:hover { color: var(--tertiary); }
       }
     }
 
     .price {
-      font-size: 1.2em;
+      font-size: 1.3em;
       font-weight: bold;
-      color: #e62e04; /* AliExpress signature red/orange */
+      color: #e62e04;
     }
   }
 }

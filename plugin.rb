@@ -62,31 +62,36 @@ after_initialize do
     end
   end
 
-  on(:post_created) do |post|
+on(:post_created) do |post|
     return unless SiteSetting.aliexpress_image_enabled
     
-    ids = post.raw.scan(/aliexpress\.com\/item\/(\d+)\.html/).flatten.uniq
+    # We use a regex that captures the whole URL so we can replace it
+    url_pattern = /https?:\/\/(?:[a-z]{2}\.)?aliexpress\.com\/item\/(\d+)\.html/
     
-    if ids.any?
-      product_id = ids.first
+    match = post.raw.match(url_pattern)
+    
+    if match
+      full_url = match[0]
+      product_id = match[1]
+      
       details = AliExpressImage::Processor.get_product_details(product_id)
       
       if details
         target_url = "https://www.aliexpress.com/item/#{product_id}.html"
         
-        # Build the Onebox-style Markdown using the [wrap] syntax
+        # Build the 300px Card
         card_markdown = <<~MD
-          
           [wrap=aliexpress-card]
-          [![#{details[:title]}|120x120](#{details[:image]})](#{target_url})
+          [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
           [wrap=aliexpress-info]
           **[#{details[:title]}](#{target_url})**
-          <span class="price">#{details[:price]} #{details[:currency]}</span>
           [/wrap]
           [/wrap]
         MD
         
-        new_raw = post.raw + "\n" + card_markdown
+        # REPLACE the original link with the card
+        new_raw = post.raw.gsub(full_url, card_markdown)
+        
         post.update_columns(raw: new_raw)
         post.publish_change_to_clients! :cooked
       end
