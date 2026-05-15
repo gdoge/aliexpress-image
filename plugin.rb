@@ -1,6 +1,6 @@
 # name: aliexpress-image
 # about: Generates product image preview cards for multiple AliExpress links in a single post
-# version: 0.4
+# version: 0.5
 # authors: YourName
 # url: https://github.com/yourusername/aliexpress-image
 
@@ -56,53 +56,58 @@ after_initialize do
         Rails.logger.error("AliExpress Image Plugin Error: #{e.message}")
         nil
       end
-    end
-  end
 
-  on(:post_created) do |post|
-    return unless SiteSetting.aliexpress_image_enabled
-    
-    # Safeguard 1: If we already processed this post, stop immediately
-    return if post.custom_fields["aliexpress_card_processed"]
-    
-    # Safeguard 2: Advanced Regex Lookbehind
-    # (?<!\]\() and (?<!\() ensure the URL is NOT preceded by a markdown link identifier
-    url_pattern = /(?<!\]\()(?<!\()(https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/(\d+)\.html)/
-    
-    matches = post.raw.scan(url_pattern).uniq
-    
-    if matches.any?
-      current_raw = post.raw.dup
-      has_changes = false
-      
-      matches.each do |full_url, product_id|
-        details = AliExpressImage::Processor.get_product_details(product_id)
+      def self.process_post(post)
+        return unless SiteSetting.aliexpress_image_enabled
+        return if post.raw.blank?
+
+        # Group 1 captures the ID. 
+        # Group 2 optionally captures trailing query parameters (e.g., ?spm=123) to prevent dangling text.
+        url_pattern = /(?<!\]\()(?<!\()https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/(\d+)\.html(\?[^\s()\[\]]*)?/
         
-        if details
-          target_url = "https://www.aliexpress.com/item/#{product_id}.html"
+        product_cache = {}
+        has_changes = false
+        current_raw = post.raw.dup
+
+        # Using the block form of gsub! processes the text safely from left-to-right.
+        # This prevents the script from accidentally replacing URLs inside the markdown it just generated.
+        current_raw.gsub!(url_pattern) do |match|
+          product_id = $1 # Captured from the regex (\d+)
           
-          card_markdown = <<~MD
-            [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
+          # Cache API calls in case the user pasted the exact same product link multiple times
+          product_cache[product_id] ||= get_product_details(product_id)
+          details = product_cache[product_id]
+
+          if details
+            has_changes = true
+            target_url = "https://www.aliexpress.com/item/#{product_id}.html"
+            
+            # The leading and trailing newlines ensure Discourse doesn't break the markdown formatting
+            <<~MD
+              
+              [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
               [wrap=aliexpress-info]
               **[#{details[:title]}](#{target_url})**
               [/wrap]
-          MD
-          
-          current_raw.gsub!(full_url, card_markdown)
-          has_changes = true
+              
+            MD
+          else
+            match # Keeps the original URL string intact if the API call fails
+          end
         end
-      end
-      
-      if has_changes
-        # Mark as processed so it never runs on this post again
-        post.custom_fields["aliexpress_card_processed"] = true
-        
-        # Save both the new text and our flag safely
-        post.update_columns(raw: current_raw)
-        post.save_custom_fields
-        
-        post.publish_change_to_clients! :cooked
+
+        # We directly assign the raw text. Discourse handles the cooking, saving, and broadcasting naturally.
+        post.raw = current_raw if has_changes
       end
     end
+  end
+
+  # Hooks onto creation and edits *before* Discourse processes the post
+  on(:before_create_post) do |post|
+    AliExpressImage::Processor.process_post(post)
+  end
+
+  on(:before_edit_post) do |post|
+    AliExpressImage::Processor.process_post(post)
   end
 end
