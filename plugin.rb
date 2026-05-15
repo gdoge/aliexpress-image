@@ -62,18 +62,19 @@ after_initialize do
   on(:post_created) do |post|
     return unless SiteSetting.aliexpress_image_enabled
     
-    # The outer parenthesis () captures the full URL. 
-    # The inner parenthesis () captures just the numeric product ID.
-    url_pattern = /(https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/(\d+)\.html)/
+    # Safeguard 1: If we already processed this post, stop immediately
+    return if post.custom_fields["aliexpress_card_processed"]
     
-    # .scan returns an array of arrays: [["http://...", "12345"], ["http://...", "67890"]]
+    # Safeguard 2: Advanced Regex Lookbehind
+    # (?<!\]\() and (?<!\() ensure the URL is NOT preceded by a markdown link identifier
+    url_pattern = /(?<!\]\()(?<!\()(https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/(\d+)\.html)/
+    
     matches = post.raw.scan(url_pattern).uniq
     
     if matches.any?
       current_raw = post.raw.dup
       has_changes = false
       
-      # Loop through every link found in the reply
       matches.each do |full_url, product_id|
         details = AliExpressImage::Processor.get_product_details(product_id)
         
@@ -81,24 +82,25 @@ after_initialize do
           target_url = "https://www.aliexpress.com/item/#{product_id}.html"
           
           card_markdown = <<~MD
-            [wrap=aliexpress-card]
             [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
-            [wrap=aliexpress-info]
-            **[#{details[:title]}](#{target_url})**
-            <span class="price">#{details[:price]} #{details[:currency]}</span>
-            [/wrap]
-            [/wrap]
+              [wrap=aliexpress-info]
+              **[#{details[:title]}](#{target_url})**
+              [/wrap]
           MD
           
-          # Replace this specific URL with its specific card
           current_raw.gsub!(full_url, card_markdown)
           has_changes = true
         end
       end
       
-      # Save the post only if at least one link was successfully converted
       if has_changes
+        # Mark as processed so it never runs on this post again
+        post.custom_fields["aliexpress_card_processed"] = true
+        
+        # Save both the new text and our flag safely
         post.update_columns(raw: current_raw)
+        post.save_custom_fields
+        
         post.publish_change_to_clients! :cooked
       end
     end
