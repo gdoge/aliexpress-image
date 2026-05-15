@@ -1,46 +1,55 @@
 .d-wrap-aliexpress-card {
   display: flex;
-  flex-direction: column; /* Stacked vertically for the large image */
+  flex-direction: column;
   border: 1px solid var(--primary-low);
   border-radius: 12px;
-  padding: 0; /* Remove padding to let image flush to top if desired */
   background-color: var(--secondary);
-  margin: 15px 0;
-  max-width: 350px; /* Constraints the card width */
+  margin: 20px 0;
+  max-width: 330px; /* Slightly wider than the image for breathing room */
   overflow: hidden;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.12);
+  }
 
   /* The 300px Image */
   a.lightbox, a:not(.lightbox) > img {
-    width: 300px;
-    height: 300px;
+    width: 300px !important;
+    height: 300px !important;
     object-fit: cover;
     display: block;
-    margin: 15px auto; /* Centers the 300px image */
+    margin: 15px auto 10px auto;
     border-radius: 8px;
   }
 
   .aliexpress-info {
-    padding: 0 15px 15px 15px;
+    padding: 10px 15px 20px 15px;
     text-align: center;
 
     strong {
       display: block;
-      font-size: 1.1em;
+      font-size: 1.05em;
       line-height: 1.4;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
       
       a {
         color: var(--primary);
-        text-decoration: none;
+        text-decoration: none !important; /* Removes the underline */
         &:hover { color: var(--tertiary); }
       }
     }
 
     .price {
-      font-size: 1.3em;
+      display: inline-block;
+      font-size: 1.4em;
       font-weight: bold;
       color: #e62e04;
+      background: rgba(230, 46, 4, 0.05);
+      padding: 4px 12px;
+      border-radius: 20px;
     }
   }
 }

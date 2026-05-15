@@ -1,12 +1,11 @@
 # name: aliexpress-image
-# about: Generates a product image preview for AliExpress links using Admin settings
-# version: 0.3
+# about: Generates product image preview cards for multiple AliExpress links in a single post
+# version: 0.4
 # authors: YourName
 # url: https://github.com/yourusername/aliexpress-image
 
 enabled_site_setting :aliexpress_image_enabled
 
-# Register the custom CSS file
 register_asset "stylesheets/aliexpress.scss"
 
 after_initialize do
@@ -43,12 +42,10 @@ after_initialize do
         response = Net::HTTP.get(uri)
         json = JSON.parse(response)
         
-        # Extract the entire product object
         product = json.dig("aliexpress_affiliate_productdetail_get_response", "resp_result", "result", "products", "product", 0)
         
         return nil unless product
 
-        # Return a hash of details
         {
           title: product["product_title"],
           image: product["product_main_image_url"],
@@ -62,37 +59,46 @@ after_initialize do
     end
   end
 
-on(:post_created) do |post|
+  on(:post_created) do |post|
     return unless SiteSetting.aliexpress_image_enabled
     
-    # We use a regex that captures the whole URL so we can replace it
-    url_pattern = /https?:\/\/(?:[a-z]{2}\.)?aliexpress\.com\/item\/(\d+)\.html/
+    # The outer parenthesis () captures the full URL. 
+    # The inner parenthesis () captures just the numeric product ID.
+    url_pattern = /(https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/(\d+)\.html)/
     
-    match = post.raw.match(url_pattern)
+    # .scan returns an array of arrays: [["http://...", "12345"], ["http://...", "67890"]]
+    matches = post.raw.scan(url_pattern).uniq
     
-    if match
-      full_url = match[0]
-      product_id = match[1]
+    if matches.any?
+      current_raw = post.raw.dup
+      has_changes = false
       
-      details = AliExpressImage::Processor.get_product_details(product_id)
+      # Loop through every link found in the reply
+      matches.each do |full_url, product_id|
+        details = AliExpressImage::Processor.get_product_details(product_id)
+        
+        if details
+          target_url = "https://www.aliexpress.com/item/#{product_id}.html"
+          
+          card_markdown = <<~MD
+            [wrap=aliexpress-card]
+            [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
+            [wrap=aliexpress-info]
+            **[#{details[:title]}](#{target_url})**
+            <span class="price">#{details[:price]} #{details[:currency]}</span>
+            [/wrap]
+            [/wrap]
+          MD
+          
+          # Replace this specific URL with its specific card
+          current_raw.gsub!(full_url, card_markdown)
+          has_changes = true
+        end
+      end
       
-      if details
-        target_url = "https://www.aliexpress.com/item/#{product_id}.html"
-        
-        # Build the 300px Card
-        card_markdown = <<~MD
-          [wrap=aliexpress-card]
-          [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
-          [wrap=aliexpress-info]
-          **[#{details[:title]}](#{target_url})**
-          [/wrap]
-          [/wrap]
-        MD
-        
-        # REPLACE the original link with the card
-        new_raw = post.raw.gsub(full_url, card_markdown)
-        
-        post.update_columns(raw: new_raw)
+      # Save the post only if at least one link was successfully converted
+      if has_changes
+        post.update_columns(raw: current_raw)
         post.publish_change_to_clients! :cooked
       end
     end
