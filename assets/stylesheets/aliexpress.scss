@@ -1,0 +1,45 @@
+/* Discourse automatically prefixes [wrap=name] with .d-wrap- */
+.d-wrap-aliexpress-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  border: 1px solid var(--primary-low);
+  border-radius: 8px;
+  padding: 12px;
+  background-color: var(--secondary);
+  margin: 15px 0;
+  max-width: 600px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+
+  /* Target the Markdown image link */
+  a.lightbox, a:not(.lightbox) > img {
+    border-radius: 6px;
+    max-width: 120px;
+    height: auto;
+    object-fit: cover;
+  }
+
+  /* Target the text wrapper */
+  .aliexpress-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    strong {
+      font-size: 1.1em;
+      line-height: 1.3;
+      margin-bottom: 8px;
+      
+      a {
+        color: var(--tertiary);
+        text-decoration: none;
+      }
+    }
+
+    .price {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #e62e04; /* AliExpress signature red/orange */
+    }
+  }
+}
