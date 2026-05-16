@@ -1,6 +1,6 @@
 # name: aliexpress-image
-# about: Generates product image preview cards for multiple AliExpress links in a single post
-# version: 0.7
+# about: Generates product image preview cards for multiple AliExpress links in a single post (Supports Short Links)
+# version: 0.8
 # authors: YourName
 # url: https://github.com/yourusername/aliexpress-image
 
@@ -13,10 +13,39 @@ after_initialize do
   require 'openssl'
   require 'net/http'
   require 'json'
+  require 'uri' # Required for parsing URLs in redirects
 
   module ::AliExpressImage
     class Processor
       
+      # NEW: Helper Method to follow HTTP redirects to find the real URL
+      def self.resolve_redirects(url, limit = 3)
+        return url if limit == 0
+        
+        uri = URI(url)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = (uri.scheme == "https")
+        http.open_timeout = 5
+        http.read_timeout = 5
+        
+        request = Net::HTTP::Get.new(uri.request_uri)
+        # Mimic a standard browser so AliExpress doesn't block the redirect request
+        request["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        
+        response = http.request(request)
+
+        if response.is_a?(Net::HTTPRedirection)
+          location = response['location']
+          # Follow the redirect recursively
+          resolve_redirects(location, limit - 1)
+        else
+          url # Reached final destination
+        end
+      rescue => e
+        Rails.logger.warn("AliExpress Plugin: Failed to resolve short link #{url} - #{e.message}")
+        url
+      end
+
       # Added a retries parameter (defaults to 2)
       def self.get_product_details(product_id, retries = 2)
         app_key = SiteSetting.aliexpress_app_key
@@ -45,8 +74,8 @@ after_initialize do
         # Safety Net 1: Hardened HTTP Request with Timeouts
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = true
-        http.open_timeout = 5 # Fails if connection takes longer than 5s
-        http.read_timeout = 5 # Fails if reading data takes longer than 5s
+        http.open_timeout = 5 
+        http.read_timeout = 5 
 
         request = Net::HTTP::Get.new(uri.request_uri)
         response = http.request(request)
@@ -84,30 +113,39 @@ after_initialize do
         return nil
       end
 
-def self.process_post(post)
+      def self.process_post(post)
         return unless SiteSetting.aliexpress_image_enabled
         return if post.raw.blank?
 
-        # Updated Regex: 
-        # Group 1 captures an optional preceding Markdown link text block like: [My Text](
-        # Group 2 captures the base URL (handles any localized subdomain like de., fr., www., etc.)
-        # Group 3 captures the Product ID
-        # Group 4 captures optional trailing parameters and an optional closing markdown parenthesis )
-        url_pattern = /(\[[^\]]*\]\()?https?:\/\/([a-zA-Z0-9.-]*aliexpress\.com)\/item\/(\d+)\.html((?:\?[^\s()\[\]]*)?)(\))?/
+        # Updated Regex: Captures Standard Links AND Short Links (s.click / a.aliexpress)
+        # Group 1: Optional Markdown Link prefix: [Text](
+        # Group 2: The full URL (including tracking parameters)
+        # Group 3: Optional Markdown Link suffix: )
+        url_pattern = /(\[[^\]]*\]\()?((?:https?:\/\/(?:[a-zA-Z0-9.-]*aliexpress\.com\/item\/\d+\.html|s\.click\.aliexpress\.com\/e\/[a-zA-Z0-9_]+|a\.aliexpress\.com\/[a-zA-Z0-9_]+))[^\s()\[\]]*)(\))?/
         
         product_cache = {}
         has_changes = false
         current_raw = post.raw.dup
 
         current_raw.gsub!(url_pattern) do |matched_block|
-          # Match against our pattern to extract components safely
           match_data = matched_block.match(url_pattern)
           next matched_block unless match_data
 
-          is_markdown_link = match_data[1].present? && match_data[5].present?
-          subdomain = match_data[2]
-          product_id = match_data[3]
+          full_url = match_data[2]
+          product_id = nil
           
+          # Check if it's a standard URL or a short link
+          if full_url.match?(/item\/(\d+)\.html/)
+            product_id = full_url[/\/item\/(\d+)\.html/, 1]
+          else
+            # Unshorten the link to steal the product ID
+            resolved_url = resolve_redirects(full_url)
+            product_id = resolved_url[/\/item\/(\d+)\.html/, 1] if resolved_url
+          end
+          
+          # If we couldn't extract an ID (e.g., dead link), leave text alone
+          next matched_block unless product_id
+
           if !product_cache.key?(product_id) && product_cache.any?
             sleep(0.5) 
           end
@@ -118,13 +156,11 @@ def self.process_post(post)
           if details
             has_changes = true
             
-            # Preserve the user's original localized subdomain (de.aliexpress.com, etc.)
-            target_url = "https://#{subdomain}/item/#{product_id}.html"
-            
+            # Use the original link (short or long) as the destination 
+            # to preserve localized subdomains and affiliate tracking parameters!
+            target_url = full_url
             safe_title = details[:title].to_s.gsub(/[\[\]()]/, '').strip
             
-            # Returns clean Markdown. Because we replace the entire 'matched_block',
-            # any surrounding user-written brackets and trailing URLs vanish completely.
             <<~MD
               
               [![#{safe_title}|300x300](#{details[:image]})](#{target_url})
