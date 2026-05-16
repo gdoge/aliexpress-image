@@ -88,14 +88,25 @@ def self.process_post(post)
         return unless SiteSetting.aliexpress_image_enabled
         return if post.raw.blank?
 
-        url_pattern = /(?<!\]\()(?<!\()https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/\d+\.html(?:\?[^\s()\[\]]*)?/
+        # Updated Regex: 
+        # Group 1 captures an optional preceding Markdown link text block like: [My Text](
+        # Group 2 captures the base URL (handles any localized subdomain like de., fr., www., etc.)
+        # Group 3 captures the Product ID
+        # Group 4 captures optional trailing parameters and an optional closing markdown parenthesis )
+        url_pattern = /(\[[^\]]*\]\()?https?:\/\/([a-zA-Z0-9.-]*aliexpress\.com)\/item\/(\d+)\.html((?:\?[^\s()\[\]]*)?)(\))?/
         
         product_cache = {}
         has_changes = false
         current_raw = post.raw.dup
 
-        current_raw.gsub!(url_pattern) do |matched_url|
-          product_id = matched_url.match(/\/item\/(\d+)\.html/)[1]
+        current_raw.gsub!(url_pattern) do |matched_block|
+          # Match against our pattern to extract components safely
+          match_data = matched_block.match(url_pattern)
+          next matched_block unless match_data
+
+          is_markdown_link = match_data[1].present? && match_data[5].present?
+          subdomain = match_data[2]
+          product_id = match_data[3]
           
           if !product_cache.key?(product_id) && product_cache.any?
             sleep(0.5) 
@@ -106,22 +117,24 @@ def self.process_post(post)
 
           if details
             has_changes = true
-            target_url = "https://www.aliexpress.com/item/#{product_id}.html"
             
-            # Sanitize the title to prevent broken Markdown links
-            # This removes [, ], (, and ) from the title string
+            # Preserve the user's original localized subdomain (de.aliexpress.com, etc.)
+            target_url = "https://#{subdomain}/item/#{product_id}.html"
+            
             safe_title = details[:title].to_s.gsub(/[\[\]()]/, '').strip
             
+            # Returns clean Markdown. Because we replace the entire 'matched_block',
+            # any surrounding user-written brackets and trailing URLs vanish completely.
             <<~MD
-              [wrap=aliexpress-card]
-              [![#{details[:title]}|120x120](#{details[:image]})](#{target_url})
+              
+              [![#{safe_title}|300x300](#{details[:image]})](#{target_url})
               [wrap=aliexpress-info]
-              **[#{details[:title]}](#{target_url})**
+              **[#{safe_title}](#{target_url})**
               [/wrap]
-              [/wrap]
+              
             MD
           else
-            matched_url 
+            matched_block 
           end
         end
 
