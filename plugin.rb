@@ -1,6 +1,6 @@
 # name: aliexpress-image
 # about: Generates product image preview cards for multiple AliExpress links in a single post
-# version: 0.5
+# version: 0.6
 # authors: YourName
 # url: https://github.com/yourusername/aliexpress-image
 
@@ -61,20 +61,19 @@ after_initialize do
         return unless SiteSetting.aliexpress_image_enabled
         return if post.raw.blank?
 
-        # Group 1 captures the ID. 
-        # Group 2 optionally captures trailing query parameters (e.g., ?spm=123) to prevent dangling text.
-        url_pattern = /(?<!\]\()(?<!\()https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/(\d+)\.html(\?[^\s()\[\]]*)?/
+        # Matches the URL and ignores markdown wrappers
+        url_pattern = /(?<!\]\()(?<!\()https?:\/\/[a-zA-Z0-9.-]*aliexpress\.com\/item\/\d+\.html(?:\?[^\s()\[\]]*)?/
         
         product_cache = {}
         has_changes = false
         current_raw = post.raw.dup
 
-        # Using the block form of gsub! processes the text safely from left-to-right.
-        # This prevents the script from accidentally replacing URLs inside the markdown it just generated.
-        current_raw.gsub!(url_pattern) do |match|
-          product_id = $1 # Captured from the regex (\d+)
+        # Scan and replace from left-to-right
+        current_raw.gsub!(url_pattern) do |matched_url|
+          # Extract exact ID from the currently evaluated link
+          product_id = matched_url.match(/\/item\/(\d+)\.html/)[1]
           
-          # Cache API calls in case the user pasted the exact same product link multiple times
+          # Check cache or fetch from API
           product_cache[product_id] ||= get_product_details(product_id)
           details = product_cache[product_id]
 
@@ -82,7 +81,7 @@ after_initialize do
             has_changes = true
             target_url = "https://www.aliexpress.com/item/#{product_id}.html"
             
-            # The leading and trailing newlines ensure Discourse doesn't break the markdown formatting
+            # Formatted Markdown Card
             <<~MD
               
               [![#{details[:title]}|300x300](#{details[:image]})](#{target_url})
@@ -92,21 +91,23 @@ after_initialize do
               
             MD
           else
-            match # Keeps the original URL string intact if the API call fails
+            # Leave URL alone if API fails
+            matched_url 
           end
         end
 
-        # We directly assign the raw text. Discourse handles the cooking, saving, and broadcasting naturally.
+        # Update the post text before Discourse saves it
         post.raw = current_raw if has_changes
       end
     end
   end
 
-  # Hooks onto creation and edits *before* Discourse processes the post
+  # Hook 1: Runs when a user creates a brand new post or topic
   on(:before_create_post) do |post|
     AliExpressImage::Processor.process_post(post)
   end
 
+  # Hook 2: Runs when a user edits an existing post
   on(:before_edit_post) do |post|
     AliExpressImage::Processor.process_post(post)
   end
