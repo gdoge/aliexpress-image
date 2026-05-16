@@ -13,9 +13,13 @@ after_initialize do
   require 'openssl'
   require 'net/http'
   require 'json'
+  require 'json'
 
   module ::AliExpressImage
     class Processor
+      
+      # Added a retries parameter (defaults to 2)
+      def self.get_product_details(product_id, retries = 2)
       
       # Added a retries parameter (defaults to 2)
       def self.get_product_details(product_id, retries = 2)
@@ -58,6 +62,22 @@ after_initialize do
         end
 
         json = JSON.parse(response.body)
+        # Safety Net 1: Hardened HTTP Request with Timeouts
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true
+        http.open_timeout = 5 # Fails if connection takes longer than 5s
+        http.read_timeout = 5 # Fails if reading data takes longer than 5s
+
+        request = Net::HTTP::Get.new(uri.request_uri)
+        response = http.request(request)
+
+        # Safety Net 2: Ensure we actually got a 200 OK response before parsing
+        unless response.is_a?(Net::HTTPSuccess)
+          Rails.logger.warn("AliExpress Image Plugin: HTTP Error #{response.code} for product #{product_id}")
+          raise "HTTP Error" 
+        end
+
+        json = JSON.parse(response.body)
         product = json.dig("aliexpress_affiliate_productdetail_get_response", "resp_result", "result", "products", "product", 0)
         
         return nil unless product
@@ -79,7 +99,20 @@ after_initialize do
           Rails.logger.error("AliExpress Image Plugin: Failed after retries for #{product_id}. Error: #{e.message}")
           return nil
         end
+        
+      # Safety Net 3: Catch Network, Timeout, and JSON Parsing errors specifically
+      rescue Timeout::Error, Errno::EINVAL, Errno::ECONNRESET, EOFError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, Net::ProtocolError, JSON::ParserError => e
+        if retries > 0
+          Rails.logger.warn("AliExpress Image Plugin: #{e.class} on #{product_id}. Retrying...")
+          sleep(1) # Wait 1 second before retrying
+          return get_product_details(product_id, retries - 1)
+        else
+          Rails.logger.error("AliExpress Image Plugin: Failed after retries for #{product_id}. Error: #{e.message}")
+          return nil
+        end
       rescue => e
+        Rails.logger.error("AliExpress Image Plugin Unexpected Error: #{e.message}")
+        return nil
         Rails.logger.error("AliExpress Image Plugin Unexpected Error: #{e.message}")
         return nil
       end
