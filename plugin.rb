@@ -113,12 +113,12 @@ def self.process_post(post)
             safe_title = details[:title].to_s.gsub(/[\[\]()]/, '').strip
             
             <<~MD
-              
-              [![#{safe_title}|300x300](#{details[:image]})](#{target_url})
+              [wrap=aliexpress-card]
+              [![#{details[:title]}|120x120](#{details[:image]})](#{target_url})
               [wrap=aliexpress-info]
-              **[#{safe_title}](#{target_url})**
+              **[#{details[:title]}](#{target_url})**
               [/wrap]
-              
+              [/wrap]
             MD
           else
             matched_url 
